@@ -3,5 +3,8 @@ data/
 *.zip
 usage.jsonl
 output.json
+out.json
 .env
 __pycache__/
+experiment/
+ai-logs/day-0[1-8]*.md
