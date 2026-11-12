@@ -197,7 +197,6 @@ def semantic_loop_review(messages, chats):
                  {"role": "user", "content": prompt}],
                 temperature=0,
                 max_tokens=5000,
-                response_format={"type": "json_object"},
                 timeout=60,
             )
             parsed = _parse_llm_json(content)
