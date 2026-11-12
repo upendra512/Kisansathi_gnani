@@ -2,6 +2,7 @@
 data/
 *.zip
 usage.jsonl
+.llm_cache/
 output.json
 out.json
 .env
