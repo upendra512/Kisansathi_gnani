@@ -17,8 +17,8 @@ const EXAMPLES_KN = [
   ["🌱", "ಭತ್ತವನ್ನು ಹತ್ತಿರದಲ್ಲಿ ಎಲ್ಲಿ ಮಾರಾಟ ಮಾಡಲಿ?", "ಮಾರುಕಟ್ಟೆ ಬೆಲೆ"],
 ];
 
-// voice-activity detection for hands-free turns
-const SPEECH_LEVEL = 0.06, SILENCE_LEVEL = 0.035, SILENCE_MS = 1600, MAX_MS = 20000;
+// Keep a turn open through normal pauses; the farmer explicitly taps stop to send.
+const MAX_MS = 60000;
 
 export default function AskView({ onAsk, running, result, chat = [], pending = null, steps = [], error = "", lang = "auto",
   onReset, onOpenDashboard, onOpenTrace }) {
@@ -28,14 +28,26 @@ export default function AskView({ onAsk, running, result, chat = [], pending = n
   const [level, setLevel] = useState(0);
   const [micError, setMicError] = useState("");
   const [speaking, setSpeaking] = useState(false);
-  const [handsFree, setHandsFree] = useState(true);
+  const [handsFree, setHandsFree] = useState(false);
   const timer = useRef();
   const recRef = useRef(null);
-  const vad = useRef({ spoke: false, quietSince: 0, started: 0 });
+  const startingRef = useRef(false);
+  const autoStartTimer = useRef();
+  const mountedRef = useRef(true);
   const threadEnd = useRef(null);
   const voiceMode = chat.length > 0 && [...chat].reverse().find((m) => m.role === "farmer")?.voice;
 
-  useEffect(() => () => clearInterval(timer.current), []);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      clearInterval(timer.current);
+      clearTimeout(autoStartTimer.current);
+      const active = recRef.current;
+      recRef.current = null;
+      if (active) active.stop().catch(() => {});
+    };
+  }, []);
   useEffect(() => { threadEnd.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [chat.length, running, steps.length]);
 
   async function stopAndSend() {
@@ -45,35 +57,56 @@ export default function AskView({ onAsk, running, result, chat = [], pending = n
     recRef.current = null;
     setRec(null);
     setLevel(0);
-    const blob = await r.stop();
-    onAsk(text, blob);
-    setText("");
+    try {
+      const blob = await r.stop();
+      if (blob.size <= 44) {
+        setMicError("I didn't hear anything. Tap the mic and try again, or type your answer.");
+      } else {
+        onAsk(text, blob);
+        setText("");
+      }
+    } catch (e) {
+      setMicError(`Could not finish the recording: ${e.message || "please try again"}`);
+    }
+  }
+
+  async function switchToTyping() {
+    const r = recRef.current;
+    if (!r) return;
+    clearInterval(timer.current);
+    recRef.current = null;
+    setRec(null);
+    setLevel(0);
+    try { await r.stop(); } catch { /* keep the text composer usable */ }
   }
 
   async function startMic() {
+    if (startingRef.current || recRef.current || running) return;
+    startingRef.current = true;
     setMicError("");
     try {
       const r = await startRecording();
+      if (!mountedRef.current) { startingRef.current = false; await r.stop(); return; }
       recRef.current = r;
+      startingRef.current = false;
       setRec(r);
       setSecs(0);
-      vad.current = { spoke: false, quietSince: 0, started: Date.now() };
+      const started = Date.now();
       timer.current = setInterval(() => {
         const lv = r.level();
         setSecs((s) => s + 0.1);
         setLevel(lv);
-        const v = vad.current, now = Date.now();
-        if (lv > SPEECH_LEVEL) { v.spoke = true; v.quietSince = 0; }
-        else if (v.spoke && lv < SILENCE_LEVEL) {
-          if (!v.quietSince) v.quietSince = now;
-          if (now - v.quietSince > SILENCE_MS) stopAndSend(); // farmer finished speaking
-        }
-        if (now - v.started > MAX_MS) stopAndSend();
+        if (Date.now() - started > MAX_MS) stopAndSend();
       }, 100);
     } catch (e) {
-      setMicError(lang === "kn"
-        ? "ಮೈಕ್ರೋಫೋನ್ ಬಳಕೆ ನಿರಾಕರಿಸಲಾಗಿದೆ — ಅನುಮತಿ ನೀಡಿ ಅಥವಾ ಉತ್ತರವನ್ನು ಬರೆಯಿರಿ."
-        : "Microphone blocked — allow mic access or type your answer.");
+      startingRef.current = false;
+      const permissionError = e?.name === "NotAllowedError" || e?.name === "PermissionDeniedError";
+      const deviceError = e?.name === "NotFoundError" || e?.name === "DevicesNotFoundError";
+      setMicError(permissionError
+        ? "Microphone permission was blocked. Allow microphone access in your browser, or type your answer."
+        : deviceError
+          ? "No microphone was found. Connect a microphone, or type your answer."
+          : `Microphone could not start: ${e?.message || e?.name || "unknown error"}. You can type your answer.`);
     }
   }
 
@@ -86,7 +119,10 @@ export default function AskView({ onAsk, running, result, chat = [], pending = n
   // After the agent finishes speaking a follow-up question, listen again automatically (hands-free voice turn).
   function onAgentAudioEnd(msg) {
     setSpeaking(false);
-    if (handsFree && voiceMode && msg.kind !== "answer" && !recRef.current && !running) startMic();
+    if (handsFree && voiceMode && msg.kind !== "answer") {
+      clearTimeout(autoStartTimer.current);
+      autoStartTimer.current = setTimeout(() => startMic(), 350);
+    }
   }
   // No voice reply (speech off)? still reopen the mic for voice users after a question.
   const last = chat[chat.length - 1];
@@ -95,7 +131,7 @@ export default function AskView({ onAsk, running, result, chat = [], pending = n
       const t = setTimeout(startMic, 500);
       return () => clearTimeout(t);
     }
-  }, [running, chat.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [running, chat.length, handsFree]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function submitText(e) {
     e.preventDefault();
@@ -199,8 +235,8 @@ export default function AskView({ onAsk, running, result, chat = [], pending = n
                 {running && lastStep ? `${(NODE_META[lastStep.node] || {}).en || lastStep.node} — ${lastStep.detail}` : `KisanSaathi voice agent · ${chat.filter((m) => m.role === "farmer").length} turn(s)`}
               </div>
             </div>
-            <label className="hidden cursor-pointer items-center gap-1.5 text-xs text-slate-400 sm:flex" title={lang === "kn" ? "ಮುಂದಿನ ಪ್ರಶ್ನೆಯ ನಂತರ ಮೈಕ್ ಸ್ವಯಂಚಾಲಿತವಾಗಿ ತೆರೆಯುತ್ತದೆ." : "After the agent asks a question, the mic opens automatically and stops when you finish speaking"}>
-              <Headphones size={14} /> {lang === "kn" ? "ಹ್ಯಾಂಡ್ಸ್-ಫ್ರೀ" : "Hands-free"}
+            <label className="hidden cursor-pointer items-center gap-1.5 text-xs text-slate-400 sm:flex" title={lang === "kn" ? "ಮುಂದಿನ ಪ್ರಶ್ನೆಯ ನಂತರ ಮೈಕ್ ಸ್ವಯಂಚಾಲಿತವಾಗಿ ತೆರೆಯುತ್ತದೆ." : "Automatically opens the mic after an agent reply; tap the mic to send your answer"}>
+              <Headphones size={14} /> {lang === "kn" ? "ಹ್ಯಾಂಡ್ಸ್-ಫ್ರೀ" : "Auto-listen"}
               <input type="checkbox" checked={handsFree} onChange={(e) => setHandsFree(e.target.checked)} className="h-4 w-4 accent-emerald-500" />
             </label>
             <button onClick={onReset} disabled={running}
@@ -302,6 +338,7 @@ export default function AskView({ onAsk, running, result, chat = [], pending = n
                   ))}
                 </div>
                 <span className="font-mono text-xs text-[#f43f5e]">{secs.toFixed(1)}s</span>
+                <button type="button" onClick={switchToTyping} className="shrink-0 rounded-lg border border-white/10 px-2 py-1 text-xs text-slate-300 hover:bg-white/10">Type instead</button>
                 <span className={`hidden text-xs text-slate-500 md:inline ${lang === "kn" ? "kn" : ""}`}>{lang === "kn" ? "ಮಾತು ನಿಲ್ಲಿಸಿದಾಗ ರೆಕಾರ್ಡಿಂಗ್ ನಿಲ್ಲುತ್ತದೆ · ಕಳುಹಿಸಲು ■ ಒತ್ತಿ" : "stops when you pause · tap ■ to send"}</span>
               </div>
             ) : (

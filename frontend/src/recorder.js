@@ -1,31 +1,45 @@
 // Records microphone audio as 16 kHz mono WAV (a format Gemini accepts natively).
 export async function startRecording() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error("This browser cannot access a microphone. Use a secure HTTPS page or type your answer.");
+  }
   const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  const ctx = new (window.AudioContext || window.webkitAudioContext)();
-  const source = ctx.createMediaStreamSource(stream);
-  const proc = ctx.createScriptProcessor(4096, 1, 1);
-  const chunks = [];
-  let level = 0;
-  proc.onaudioprocess = (e) => {
-    const data = e.inputBuffer.getChannelData(0);
-    chunks.push(new Float32Array(data));
-    let sum = 0;
-    for (let i = 0; i < data.length; i += 64) sum += Math.abs(data[i]);
-    level = Math.min(1, (sum / (data.length / 64)) * 6);
-  };
-  source.connect(proc);
-  proc.connect(ctx.destination);
-  return {
-    level: () => level,
-    async stop() {
-      proc.disconnect();
-      source.disconnect();
-      stream.getTracks().forEach((t) => t.stop());
-      const rate = ctx.sampleRate;
-      await ctx.close();
-      return encodeWav(chunks, rate, 16000);
-    },
-  };
+  let ctx;
+  try {
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (ctx.state === "suspended") await ctx.resume();
+    const source = ctx.createMediaStreamSource(stream);
+    const proc = ctx.createScriptProcessor(4096, 1, 1);
+    const chunks = [];
+    let level = 0;
+    let stopped = false;
+    proc.onaudioprocess = (e) => {
+      const data = e.inputBuffer.getChannelData(0);
+      chunks.push(new Float32Array(data));
+      let sum = 0;
+      for (let i = 0; i < data.length; i += 64) sum += Math.abs(data[i]);
+      level = Math.min(1, (sum / (data.length / 64)) * 6);
+    };
+    source.connect(proc);
+    proc.connect(ctx.destination);
+    return {
+      level: () => level,
+      async stop() {
+        if (stopped) return new Blob([], { type: "audio/wav" });
+        stopped = true;
+        proc.disconnect();
+        source.disconnect();
+        stream.getTracks().forEach((t) => t.stop());
+        const rate = ctx.sampleRate;
+        await ctx.close();
+        return encodeWav(chunks, rate, 16000);
+      },
+    };
+  } catch (error) {
+    stream.getTracks().forEach((track) => track.stop());
+    if (ctx && ctx.state !== "closed") await ctx.close().catch(() => {});
+    throw error;
+  }
 }
 
 function encodeWav(chunks, inRate, outRate) {

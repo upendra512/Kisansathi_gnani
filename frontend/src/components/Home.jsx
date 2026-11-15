@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import {
   MapPin, CalendarDays, Clock, Wind, Thermometer, Droplets, Gauge, Sprout, ArrowUpRight, LocateFixed,
-  SprayCan, CloudRain, Store, Loader2, Mic, Waves, Sun, CloudSun, CloudDrizzle, AlertTriangle,
+  SprayCan, CloudRain, Store, Loader2, Mic, Waves, Sun, CloudSun, CloudDrizzle, AlertTriangle, RefreshCw,
 } from "lucide-react";
 import { getOverview } from "../api.js";
 import { inr } from "./ui.jsx";
@@ -75,6 +75,7 @@ export default function Home({ profile, setProfile, geo = {}, onLocate, onAskQue
   const [err, setErr] = useState("");
   const [now, setNow] = useState(new Date());
   const [typed, setTyped] = useState("");
+  const [refreshToken, setRefreshToken] = useState(0);
 
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 30000); return () => clearInterval(t); }, []);
 
@@ -88,12 +89,12 @@ export default function Home({ profile, setProfile, geo = {}, onLocate, onAskQue
     }
     let alive = true;
     setLoading(true); setErr(""); setData(null);
-    getOverview(profile)
+    getOverview(profile, (partial) => { if (alive) setData(partial); })
       .then((d) => { if (alive) { if (d.ok) setData(d); else setErr(d.error || "Could not load live data"); } })
       .catch((e) => alive && setErr(`Server unreachable: ${e.message}`))
       .finally(() => alive && setLoading(false));
     return () => { alive = false; };
-  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [key, refreshToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const place = data?.place;
   const cur = data?.current || {};
@@ -209,10 +210,25 @@ export default function Home({ profile, setProfile, geo = {}, onLocate, onAskQue
           <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
             {data?.weather_source && <span className="rounded-full border border-white/10 bg-black/30 px-3 py-1 font-mono text-[10px] text-slate-300 backdrop-blur">● {data.weather_source === "live" ? "live" : "cached"} · Open-Meteo {data.weather_source === "live" ? "" : `(${data.weather_source})`}</span>}
             {mandi && <span className="rounded-full border border-white/10 bg-black/30 px-3 py-1 font-mono text-[10px] text-slate-300 backdrop-blur">● {mandi.cache === "live" ? "live" : "cached"} Agmarknet {mandi.date || ""} · {mandi.records} records</span>}
+            <button onClick={() => setRefreshToken((n) => n + 1)} disabled={loading || needsLocation}
+              className="flex items-center gap-1.5 rounded-full border border-white/10 bg-black/30 px-3 py-1 text-[11px] text-slate-200 backdrop-blur transition-all duration-200 ease-in-out hover:border-emerald-400/40 disabled:opacity-40"
+              title="Reload weather and government mandi data">
+              <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> Refresh data
+            </button>
             <button onClick={onLocate} className="flex items-center gap-1.5 rounded-full border border-white/10 bg-black/30 px-3 py-1 text-[11px] text-slate-200 backdrop-blur transition-all duration-200 ease-in-out hover:border-emerald-400/40">
               {geo.status === "locating" ? <Loader2 size={12} className="animate-spin" /> : <LocateFixed size={12} />} {profile.coords ? "Live GPS" : "Use my location"}
             </button>
           </div>
+          {health?.data_gov === false && (
+            <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+              Government mandi prices are not configured on this server. Add <code>DATA_GOV_API_KEY</code> in Render → Environment, then redeploy.
+            </div>
+          )}
+          {data?.weather_error && (
+            <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+              Weather feed unavailable: {data.weather_error}. Use Refresh data to retry.
+            </div>
+          )}
 
           {/* centre call-to-action / states */}
           <div className="grid flex-1 place-items-center py-4 xl:py-6">
@@ -330,7 +346,15 @@ export default function Home({ profile, setProfile, geo = {}, onLocate, onAskQue
                     </div>
                   ))}
                 </div>
-              ) : data?.mandi_error ? <div className="mt-3 text-xs text-amber-300">Mandi feed unavailable right now</div> : <Skeleton h="h-40" />}
+              ) : data?.mandi_loading ? (
+                <div className="mt-3 flex items-center gap-2 text-xs text-slate-300"><Loader2 size={13} className="animate-spin" /> Loading government mandi prices…</div>
+              ) : data?.mandi_error || health?.data_gov === false ? (
+                <div className="mt-3 text-xs text-amber-300">
+                  {health?.data_gov === false
+                    ? "Set DATA_GOV_API_KEY in Render → Environment and redeploy."
+                    : `Government mandi feed unavailable: ${data.mandi_error}`}
+                </div>
+              ) : <Skeleton h="h-40" />}
             </div>
 
             <div className={`${GLASS} relative overflow-hidden p-4`}>

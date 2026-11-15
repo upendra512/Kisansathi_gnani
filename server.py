@@ -98,6 +98,58 @@ def overview(lat: float | None = None, lon: float | None = None, location: str =
         out["mandi_error"] = str(exc)
     return out
 
+
+@app.get("/api/overview/weather")
+def overview_weather(lat: float | None = None, lon: float | None = None, location: str = ""):
+    """Return location and weather data without waiting for the slower mandi feed."""
+    try:
+        place = reverse_geocode(lat, lon) if lat is not None and lon is not None else geocode_place(location)[0]
+    except Exception as exc:
+        return {"ok": False, "error": f"Location not found: {exc}"}
+    out = {"ok": True, "place": place, "fetched_at": now_iso()}
+    try:
+        wx = get_forecast(place["lat"], place["lon"])
+        h, d = wx["hourly"], wx["daily"]
+        i0 = eng._now_index(h["time"])
+        keys = ["temperature_2m", "relative_humidity_2m", "precipitation_probability", "precipitation", "wind_speed_10m",
+                "wind_direction_10m", "vapour_pressure_deficit", "cloud_cover", "soil_moisture_0_to_1cm",
+                "soil_moisture_3_to_9cm", "soil_moisture_9_to_27cm", "soil_temperature_0cm"]
+        win = {k: [x for x in (h.get(k) or [])[i0:i0 + 48] if x is not None] for k in keys}
+        out["current"] = {k: (h.get(k) or [None] * (i0 + 1))[i0] for k in keys}
+        out["range48"] = {k: {"min": min(v), "max": max(v)} for k, v in win.items() if v}
+        out["daily"] = {k: d.get(k) for k in ("time", "temperature_2m_max", "temperature_2m_min", "precipitation_sum",
+                                                "precipitation_probability_max", "et0_fao_evapotranspiration", "weather_code")}
+        spray = eng.spray_windows(h)
+        irr = eng.irrigation_advice(h, d)
+        out.update(spray=spray, spray_hours=eng.spray_hour_flags(h, 48), irrigation=irr,
+                   readiness=eng.readiness_score(h, d, spray, irr), weather_source=wx["cache"], weather_fetched=wx["fetched_at"])
+    except Exception as exc:
+        out["weather_error"] = str(exc)
+    return out
+
+
+@app.get("/api/overview/mandi")
+def overview_mandi(state: str = ""):
+    """Fetch government mandi prices independently so they cannot hold back the weather view."""
+    try:
+        m = fetch_state(state_candidates(state))
+        by = {}
+        for row in m["records"]:
+            if row.get("modal_price"):
+                by.setdefault(row["commodity"], []).append(row)
+        top = sorted(by.items(), key=lambda kv: len({row["market"] for row in kv[1]}), reverse=True)[:6]
+        return {"ok": True, "mandi": {
+            "state": m["state"], "records": len(m["records"]), "commodities": len(by), "cache": m["cache"],
+            "fetched_at": m["fetched_at"], "date": (m["records"][0].get("arrival_date") if m["records"] else None),
+            "top": [{"commodity": commodity, "markets": len({row["market"] for row in rows}),
+                     "modal": round(statistics.median(row["modal_price"] for row in rows)),
+                     "min": round(min((row["min_price"] for row in rows if row.get("min_price") is not None), default=0)),
+                     "max": round(max((row["max_price"] for row in rows if row.get("max_price") is not None), default=0))}
+                    for commodity, rows in top],
+        }}
+    except Exception as exc:
+        return {"ok": False, "mandi_error": str(exc)}
+
 @app.post("/api/warmup")
 def warmup(location: str = Form(""), lat: float | None = Form(None), lon: float | None = Form(None)):
     try:

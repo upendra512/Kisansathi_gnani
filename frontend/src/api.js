@@ -44,10 +44,28 @@ export async function askAgent(fields, audioBlob, onEvent) {
   }
 }
 
-export async function getOverview(profile) {
+export async function getOverview(profile, onPartial) {
   const q = new URLSearchParams();
   if (profile.coords) { q.set("lat", profile.coords.lat); q.set("lon", profile.coords.lon); }
   else q.set("location", profile.location || "");
-  const r = await fetch(`/api/overview?${q.toString()}`);
-  return r.json();
+  const weatherResponse = await fetch(`/api/overview/weather?${q.toString()}`);
+  if (!weatherResponse.ok) throw new Error(`Weather request failed (HTTP ${weatherResponse.status})`);
+  const weather = await weatherResponse.json();
+  if (!weather.ok) return weather;
+
+  const partial = { ...weather, mandi_loading: true };
+  onPartial?.(partial);
+  if (!weather.place?.state) {
+    return { ...partial, mandi_loading: false, mandi_error: "Could not determine the state for this location." };
+  }
+
+  const mandiQuery = new URLSearchParams({ state: weather.place.state });
+  try {
+    const mandiResponse = await fetch(`/api/overview/mandi?${mandiQuery.toString()}`);
+    if (!mandiResponse.ok) throw new Error(`Government mandi request failed (HTTP ${mandiResponse.status})`);
+    const mandi = await mandiResponse.json();
+    return { ...partial, ...mandi, mandi_loading: false };
+  } catch (e) {
+    return { ...partial, mandi_loading: false, mandi_error: e.message || "Government mandi feed unavailable." };
+  }
 }
