@@ -20,7 +20,9 @@ DAILY = [
 
 def get_forecast(lat: float, lon: float) -> dict:
     key = f"wx2_{round(lat, 2)}_{round(lon, 2)}"
-    hit = MEM.get(key, ttl_seconds=1800)
+    # Open-Meteo's free endpoint rate-limits bursts. Keep a forecast usable for an hour
+    # and let the disk snapshot serve as a fallback when Render is restarted or throttled.
+    hit = MEM.get(key, ttl_seconds=3600)
     if hit:
         return {**hit, "cache": "memory (≤30 min old)"}
     params = {
@@ -28,7 +30,7 @@ def get_forecast(lat: float, lon: float) -> dict:
         "timezone": "Asia/Kolkata", "forecast_days": 7,
     }
     try:
-        data = get_json(URL, params, timeout=8)
+        data = get_json(URL, params, timeout=8, retries=2, backoff=3.0)
         out = {
             "hourly": data["hourly"], "daily": data["daily"], "units": data.get("hourly_units", {}),
             "fetched_at": now_iso(), "source": "Open-Meteo Forecast API", "cache": "live",

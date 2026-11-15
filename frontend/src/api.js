@@ -60,12 +60,16 @@ export async function getOverview(profile, onPartial) {
   }
 
   const mandiQuery = new URLSearchParams({ state: weather.place.state });
+  const mandiController = new AbortController();
+  const mandiTimeout = setTimeout(() => mandiController.abort(), 30000);
   try {
-    const mandiResponse = await fetch(`/api/overview/mandi?${mandiQuery.toString()}`);
+    const mandiResponse = await fetch(`/api/overview/mandi?${mandiQuery.toString()}`, { signal: mandiController.signal });
     if (!mandiResponse.ok) throw new Error(`Government mandi request failed (HTTP ${mandiResponse.status})`);
     const mandi = await mandiResponse.json();
     return { ...partial, ...mandi, mandi_loading: false };
   } catch (e) {
-    return { ...partial, mandi_loading: false, mandi_error: e.message || "Government mandi feed unavailable." };
+    return { ...partial, mandi_loading: false, mandi_error: e.name === "AbortError" ? "Government mandi request timed out. Use Refresh data to try again." : (e.message || "Government mandi feed unavailable.") };
+  } finally {
+    clearTimeout(mandiTimeout);
   }
 }
