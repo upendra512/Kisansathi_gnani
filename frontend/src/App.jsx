@@ -5,6 +5,7 @@ import AskView from "./components/AskView.jsx";
 import TraceView from "./components/TraceView.jsx";
 import Dashboard from "./components/Dashboard.jsx";
 import Home from "./components/Home.jsx";
+import FarmConnect from "./components/FarmConnect.jsx";
 import { askAgent, getHealth, reverseGeocode } from "./api.js";
 import { t } from "./i18n.js";
 
