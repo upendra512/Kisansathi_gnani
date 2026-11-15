@@ -25,9 +25,18 @@ export async function warmup(profile) {
 /** Streams agent steps (Server-Sent Events over a POST response). */
 export async function askAgent(fields, audioBlob, onEvent) {
   const fd = formOf(fields);
-  if (audioBlob) fd.append("audio", audioBlob, "question.wav");
+  // Do not send a zero-byte recording; FastAPI/Gnani cannot parse it as audio.
+  if (audioBlob && audioBlob.size > 44) fd.append("audio", audioBlob, "question.wav");
   const res = await fetch("/api/ask", { method: "POST", body: fd });
-  if (!res.ok || !res.body) throw new Error(`Server error ${res.status}`);
+  if (!res.ok || !res.body) {
+    let detail = "";
+    try {
+      const body = await res.text();
+      const parsed = JSON.parse(body);
+      detail = parsed.detail || parsed.error || "";
+    } catch { /* response was not JSON */ }
+    throw new Error(`Server error ${res.status}${detail ? `: ${detail}` : ""}`);
+  }
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";

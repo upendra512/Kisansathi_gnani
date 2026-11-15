@@ -32,6 +32,7 @@ export default function AskView({ onAsk, running, result, chat = [], pending = n
   const timer = useRef();
   const recRef = useRef(null);
   const startingRef = useRef(false);
+  const sendingRef = useRef(false);
   const autoStartTimer = useRef();
   const mountedRef = useRef(true);
   const threadEnd = useRef(null);
@@ -52,7 +53,8 @@ export default function AskView({ onAsk, running, result, chat = [], pending = n
 
   async function stopAndSend() {
     const r = recRef.current;
-    if (!r) return;
+    if (!r || sendingRef.current) return;
+    sendingRef.current = true;
     clearInterval(timer.current);
     recRef.current = null;
     setRec(null);
@@ -67,6 +69,8 @@ export default function AskView({ onAsk, running, result, chat = [], pending = n
       }
     } catch (e) {
       setMicError(`Could not finish the recording: ${e.message || "please try again"}`);
+    } finally {
+      sendingRef.current = false;
     }
   }
 
@@ -81,7 +85,7 @@ export default function AskView({ onAsk, running, result, chat = [], pending = n
   }
 
   async function startMic() {
-    if (startingRef.current || recRef.current || running) return;
+    if (startingRef.current || sendingRef.current || recRef.current || running) return;
     startingRef.current = true;
     setMicError("");
     try {
