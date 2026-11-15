@@ -13,6 +13,7 @@ const PAGE_BACKGROUNDS = {
   ask: "/bg-tractor.jpg",
   trace: "/bg-valley.jpg",
   dashboard: "/bg-tractor.jpg",
+  farmconnect: "/bg-tractor.jpg",
 };
 
 function EmptyState({ what, hi, onAsk, lang }) {
@@ -155,6 +156,7 @@ export default function App() {
         <div className="order-1 min-w-0 lg:order-2">
           {view === "ask" && <AskView onAsk={onAsk} running={running} result={result} chat={chat} pending={pending} steps={steps} error={error} lang={lang}
             onReset={resetChat} onOpenDashboard={() => setView("dashboard")} onOpenTrace={() => setView("trace")} />}
+          {view === "farmconnect" && <FarmConnect lang={lang} />}
           {view === "trace" && (steps.length || running || error
             ? <TraceView steps={steps} running={running} result={running ? null : result} error={error} lang={result?.plan?.language || lang} onOpenDashboard={() => setView("dashboard")} />
             : <EmptyState what="agent trace" hi="एजेंट ट्रेस" onAsk={() => setView("ask")} lang={lang} />)}

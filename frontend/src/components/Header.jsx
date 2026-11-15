@@ -7,6 +7,7 @@ const TABS = [
   { id: "ask", en: "Ask", hi: "पूछें", kn: "ಕೇಳಿ" },
   { id: "trace", en: "Live Trace", hi: "ट्रेस", kn: "ಲೈವ್ ಟ್ರೇಸ್" },
   { id: "dashboard", en: "Dashboard", hi: "डैಶಬೋರ್ಡ್", kn: "ಡ್ಯಾಶ್‌ಬೋರ್ಡ್" },
+  { id: "farmconnect", en: "Farm Connect", hi: "Farm Connect", kn: "Farm Connect" },
 ];
 
 function Dot({ ok, label }) {
