@@ -4,6 +4,7 @@ import AgentGraph from "./AgentGraph.jsx";
 import { graphState } from "./TraceView.jsx";
 import { SprayPanel, IrrigationPanel, MandiPanel, SourcesPanel } from "./Panels.jsx";
 import { Pill, inr } from "./ui.jsx";
+import FarmConnect from "./FarmConnect.jsx";
 
 const TILE_ICONS = [SprayCan, Droplets, Store, CloudSun];
 
@@ -17,6 +18,7 @@ export default function Dashboard({ result, steps, onOpenTrace, lang: uiLang = "
   const lang = result.plan?.language || uiLang;
 
   const tabs = [
+    ["farm", "☎ Farm Connect"],
     ["spray", "🌦️ Spray windows"], ["irrigation", "💧 Irrigation & soil"],
     ["mandi", `💰 Mandi ranking${result.ranked?.length ? ` · ${result.ranked.length}` : ""}`], ["sources", "🔍 Sources & facts"],
   ];
@@ -215,6 +217,7 @@ export default function Dashboard({ result, steps, onOpenTrace, lang: uiLang = "
           ))}
         </div>
         <div className="p-5">
+          {tab === "farm" && <FarmConnect lang={lang} />}
           {tab === "spray" && <SprayPanel spray={a.spray} series={result.series} />}
           {tab === "irrigation" && <IrrigationPanel irr={a.irrigation} series={result.series} />}
           {tab === "mandi" && <MandiPanel ranked={result.ranked} market={a.market} place={result.place} cost={result.cost_per_qtl_km} commodity={result.commodity} />}

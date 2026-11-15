@@ -229,6 +229,11 @@ export default function Home({ profile, setProfile, geo = {}, onLocate, onAskQue
               Weather feed unavailable: {data.weather_error}. Use Refresh data to retry.
             </div>
           )}
+          {data?.weather_source === "demo" && (
+            <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+              Weather provider is unavailable; showing synthetic demo weather.
+            </div>
+          )}
 
           {/* centre call-to-action / states */}
           <div className="grid flex-1 place-items-center py-4 xl:py-6">
@@ -330,7 +335,8 @@ export default function Home({ profile, setProfile, geo = {}, onLocate, onAskQue
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
             <div className={`${GLASS} p-4`}>
-              <CardTitle lang={lang} title={t(lang, "mandi_pulse")} sub={mandi ? `${mandi.cache === "live" ? "Live" : "Cached"} · ${mandi.date || "latest available"} in ${mandi.state} · ${mandi.commodities} crops` : "Agmarknet prices"} onOpen={() => onAskQuestion("Where should I sell my crop for the best price?")} />
+              <CardTitle lang={lang} title={t(lang, "mandi_pulse")} sub={mandi ? `${mandi.cache === "demo" ? "Demo" : mandi.cache === "live" ? "Live" : "Cached"} · ${mandi.date || "latest available"} in ${mandi.state} · ${mandi.commodities} crops` : "Agmarknet prices"} onOpen={() => onAskQuestion("Where should I sell my crop for the best price?")} />
+              {mandi?.cache === "demo" && <div className="mt-2 text-xs text-amber-300">Government feed unavailable; showing synthetic demo prices.</div>}
               {mandi?.top?.length ? (
                 <div className="mt-3 space-y-2.5">
                   {mandi.top.slice(0, 5).map((m) => (

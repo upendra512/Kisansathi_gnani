@@ -11,6 +11,16 @@ PAGE = 1000
 MAX_PAGES = 5
 
 
+def _demo_records(state: str) -> list[dict]:
+    """Synthetic records for a visible demo when data.gov.in is unreachable."""
+    commodities = [("Tomato", 2200), ("Paddy", 2450), ("Potato", 1900), ("Onion", 2800), ("Mustard", 5600)]
+    markets = ["Demo Krishi Mandi", "Sample Farmers Market"]
+    return [{"state": state or "Demo State", "district": "Demo District", "market": market,
+             "commodity": commodity, "variety": "Demo", "grade": "FAQ", "arrival_date": now_iso()[:10],
+             "min_price": price - 200, "max_price": price + 250, "modal_price": price}
+            for commodity, price in commodities for market in markets]
+
+
 def _slug(state: str) -> str:
     return "".join(ch if ch.isalnum() else "_" for ch in state.lower())
 
@@ -63,4 +73,7 @@ def fetch_state(candidates: list[str]) -> dict:
         disk = read_json(f"mandi_{_slug(state)}.json")
         if disk and disk.get("records"):
             return {**disk, "cache": f"disk fallback — live call failed ({'; '.join(errors)})"}
-    raise FetchError("; ".join(errors) or "no state given")
+    return {"records": _demo_records(candidates[0] if candidates else "Demo State"),
+            "state": candidates[0] if candidates else "Demo State", "fetched_at": now_iso(),
+            "source": "KisanSaathi synthetic demo mandi data", "cache": "demo",
+            "warning": "; ".join(errors) or "no state given"}

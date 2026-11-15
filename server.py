@@ -89,6 +89,7 @@ def overview(lat: float | None = None, lon: float | None = None, location: str =
         out["mandi"] = {
             "state": m["state"], "records": len(m["records"]), "commodities": len(by), "cache": m["cache"],
             "fetched_at": m["fetched_at"], "date": (m["records"][0].get("arrival_date") if m["records"] else None),
+            "warning": m.get("warning"),
             "top": [{"commodity": c, "markets": len({x["market"] for x in rs}),
                      "modal": round(statistics.median(x["modal_price"] for x in rs)),
                      "min": round(min(x["modal_price"] for x in rs)), "max": round(max(x["modal_price"] for x in rs))}
@@ -141,6 +142,7 @@ def overview_mandi(state: str = ""):
         return {"ok": True, "mandi": {
             "state": m["state"], "records": len(m["records"]), "commodities": len(by), "cache": m["cache"],
             "fetched_at": m["fetched_at"], "date": (m["records"][0].get("arrival_date") if m["records"] else None),
+            "warning": m.get("warning"),
             "top": [{"commodity": commodity, "markets": len({row["market"] for row in rows}),
                      "modal": round(statistics.median(row["modal_price"] for row in rows)),
                      "min": round(min((row["min_price"] for row in rows if row.get("min_price") is not None), default=0)),
