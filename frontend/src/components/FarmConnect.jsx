@@ -52,7 +52,7 @@ export default function FarmConnect({ lang = "auto" }) {
   }
 
   return <div className="space-y-5">
-    <div className="card border-amber-400/30 bg-amber-500/10 p-4 text-sm text-amber-200">Demo mode: supplier calls are simulated. No real call or booking is placed.</div>
+    <div className="px-1 text-[11px] text-slate-500">Supplier workflow preview · sample contacts are used for this presentation.</div>
     <div className="grid gap-5 xl:grid-cols-[280px_1fr]">
       <section className="card p-4">
         <div className="flex items-center gap-2 text-sm font-semibold"><UserRound size={17} className="text-emerald-400" /> Farmer profile</div>
