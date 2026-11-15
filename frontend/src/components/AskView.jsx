@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Mic, Square, ArrowRight, MessageCircleQuestion, CloudSun, Droplets, IndianRupee, Loader2, Send, RotateCcw,
-  LayoutDashboard, Network, Volume2, Headphones, Bot } from "lucide-react";
+  LayoutDashboard, Network, Volume2, Headphones, Bot, X } from "lucide-react";
 import { startRecording } from "../recorder.js";
 import { Pill, inr, NODE_META, graphNodeFor } from "./ui.jsx";
 import { t } from "../i18n.js";
@@ -82,6 +82,17 @@ export default function AskView({ onAsk, running, result, chat = [], pending = n
     setRec(null);
     setLevel(0);
     try { await r.stop(); } catch { /* keep the text composer usable */ }
+  }
+
+  async function cancelRecording() {
+    const r = recRef.current;
+    if (!r) return;
+    clearInterval(timer.current);
+    recRef.current = null;
+    setRec(null);
+    setLevel(0);
+    try { await r.stop(); } catch { /* microphone cleanup is best effort */ }
+    setMicError("");
   }
 
   async function startMic() {
@@ -342,7 +353,7 @@ export default function AskView({ onAsk, running, result, chat = [], pending = n
                   ))}
                 </div>
                 <span className="font-mono text-xs text-[#f43f5e]">{secs.toFixed(1)}s</span>
-                <button type="button" onClick={switchToTyping} className="shrink-0 rounded-lg border border-white/10 px-2 py-1 text-xs text-slate-300 hover:bg-white/10">Type instead</button>
+                <button type="button" onClick={cancelRecording} className="flex shrink-0 items-center gap-1 rounded-lg border border-rose-400/30 px-2 py-1 text-xs text-rose-300 hover:bg-rose-500/10"><X size={13} /> Cancel</button>
                 <span className={`hidden text-xs text-slate-500 md:inline ${lang === "kn" ? "kn" : ""}`}>{lang === "kn" ? "ಮಾತು ನಿಲ್ಲಿಸಿದಾಗ ರೆಕಾರ್ಡಿಂಗ್ ನಿಲ್ಲುತ್ತದೆ · ಕಳುಹಿಸಲು ■ ಒತ್ತಿ" : "stops when you pause · tap ■ to send"}</span>
               </div>
             ) : (
