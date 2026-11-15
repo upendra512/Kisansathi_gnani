@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: kisansaathi
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATA_GOV_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GNANI_API_KEY
+        sync: false

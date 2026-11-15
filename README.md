@@ -1,106 +1,112 @@
-# Cold Start: starter kit
+# 🌾 KisanSaathi — Agentic, voice-first farm advisor
 
-The challenge is on https://goals.xpert.chat/w/intern. Read it first. This kit gets you running
-before the real data arrives.
+**Voice-first farm advisory for Indian farmers, powered by Gnani Prisma and Timbre**
 
-## What's here
+A farmer asks in Hindi, Kannada, or English, by voice or text: *"ನಾಳೆ ಟೊಮೇಟೊಗೆ ಔಷಧಿ ಸಿಂಪಡಿಸಬಹುದೇ?"*
+(Should I spray my tomatoes tomorrow, and where should I sell?)
+A LangGraph agent pulls **live** weather, soil moisture, evapotranspiration and **today's mandi prices**,
+checks and corrects its own data gaps, computes the answer **in deterministic Python**, and replies in
+Hindi, Kannada, or English with a neural voice. Every number shown or spoken is traceable to a live source.
 
-| File | What it is |
+## What makes it different
+| | Typical farm chatbot | KisanSaathi |
+|---|---|---|
+| Numbers | LLM writes them (can hallucinate) | LLM writes **placeholders only**. Python fills every number, and a guardrail rejects any figure the LLM invents |
+| Spraying | "Avoid spraying in rain" | Exact safe **time windows** from hourly rain probability, wind, temperature and **vapour-pressure deficit** |
+| Irrigation | Generic tips | Root-zone **soil moisture** plus 3-day **rain vs FAO-56 ET₀** water balance gives irrigate now / soon / hold |
+| Selling | One mandi price | Every mandi trading the crop today, ranked by **net ₹/quintal after the farmer's own transport cost** |
+| Failures | Crashes or makes things up | Self-correction loops (neighbouring states, wider radius), disk fallback of the last real pull, honest warnings |
+
+## Architecture
+```mermaid
+flowchart TB
+    IN["🎙️ Voice / ⌨️ Text (Hindi · Kannada · English)"] --> P["Planner · Gemini<br/>speech→intent, crop, place"]
+    P --> L["Geocode farmer<br/>Open-Meteo Geocoding"]
+    L -- not found --> S
+    L --> F{{"Parallel fetch"}}
+    F --> W["Weather + soil moisture + VPD + ET₀<br/>Open-Meteo Forecast API"]
+    F --> M["Today's mandi prices (state pull)<br/>data.gov.in · Agmarknet"]
+    W & M --> C["Verify commodity<br/>rapidfuzz vs today's traded list"]
+    C -- not traded --> N["Self-correct:<br/>pull neighbouring states"] --> C
+    C --> G["Geocode mandi districts<br/>parallel + disk cache"]
+    G --> R["Rank by net price<br/>haversine × 1.3, user ₹/qtl/km"]
+    R -- "< 3 mandis" --> X["Self-correct:<br/>radius 50→120→250 km→state"] --> R
+    R --> E["Deterministic engine<br/>spray windows · irrigation · market summary"]
+    E --> S["Synthesizer · Gemini<br/>writes text with {placeholders}"]
+    S --> GR["Guardrail<br/>reject unverified numbers → template"]
+    GR --> OUT["Advisory card · agent graph · map · edge-tts voice"]
+```
+
+### Agent fallback layers
+
+- Voice input tries Gnani Prisma first. If it fails, Gemini receives the original audio directly.
+- If both voice recognizers fail, the user receives a clear request to retry by voice or type.
+- Voice output tries Gnani Timbre first, then Edge-TTS, then gTTS.
+- Gemini planning falls back to the rule-based planner, and advisory writing falls back to deterministic templates.
+- Weather and mandi tools use memory and disk copies of the last real response when live APIs fail.
+
+**Design principle: the LLM reasons and explains, Python calculates.** Gemini is used in only two nodes
+(planner, synthesizer). Every node in between is deterministic and logged to the live **Agent Trace** in the UI.
+
+### Components
+| Layer | File | Notes |
+|---|---|---|
+| UI | `frontend/src/`, `server.py` | React dashboard and FastAPI streaming API; live node-by-node trace, charts and mandi map |
+| Agent | `agent/graph.py`, `agent/nodes.py` | LangGraph `StateGraph` with conditional self-correction edges |
+| Guardrail | `agent/guardrails.py` | placeholder rendering, ±1 / ±1 % number verification, deterministic HI/KN/EN templates |
+| Tools | `tools/weather.py`, `tools/mandi.py`, `tools/geocode.py` | timeout + retry + memory TTL cache + disk fallback of last **live** response |
+| Engine | `tools/engine.py` | spray windows, irrigation decision, net-price market ranking |
+| Voice | `core/gnani.py`, `core/voice.py` | Gnani Prisma speech recognition and Timbre speech output, with Gemini/Edge-TTS/gTTS fallbacks |
+
+### Live data sources (no mock data anywhere)
+| Data | Source |
 |---|---|
-| `run.sh` | The one command we run: `./run.sh <input_dir> <output.json>`. It must finish in 30 minutes |
-| `solution.py` | A naive starting point that writes a valid output. It scores badly on purpose. Replace it |
-| `llm.py` | A tiny client for any OpenAI-compatible API. It logs token use to `usage.jsonl` |
-| `schema.json` | The exact shape of `output.json` |
-| `check.py` | Checks your output's shape, and scores it if the folder has answers |
-| `example/` | A tiny made-up person, Meera: 6 chats, 29 messages, with the answers |
-| `WRITEUP.md` | The template for your write-up |
-| `ai-logs/` | Where your AI session transcripts go |
+| Mandi prices (today) | data.gov.in resource `9ef84268-d588-465a-a308-a864a43d0070`, *Current Daily Price of Various Commodities from Various Markets (Mandi)*, Agmarknet / DMI |
+| Hourly weather, VPD, FAO-56 ET₀, 4-layer soil moisture, soil temperature | Open-Meteo Forecast API |
+| Geocoding (farmer + mandi districts) | Open-Meteo Geocoding API |
+| Voice input | Gnani Prisma speech-to-text API with Hindi, Kannada, English, and auto detection (`GNANI_STT_MODEL`) |
+| Voice output | Gnani Timbre text-to-speech API with Hindi, Kannada, and English voices (`GNANI_TTS_MODEL`) |
 
-Python 3.9 or later. Nothing to install. You can write your solution in any language, as long as
-`run.sh` runs it on a clean Linux machine.
+`.cache/` is created at runtime only from real API responses (git-ignored), so an outage serves the last
+real pull **labelled with its fetch time**.
 
-## Try it now
+### Decision rules (deterministic)
+- **Spray window:** daylight, rain probability ≤ 20 %, wind ≤ 15 km/h, 10–32 °C, VPD 0.3–1.6 kPa, no rain in the next 4 h, at least 2 consecutive hours.
+- **Irrigation:** hold if 3-day rain ≥ 80 % of 3-day ET₀ (and ≥ 5 mm); irrigate now if root-zone moisture < 0.17 m³/m³; irrigate soon if < 0.27 and the 3-day balance is below −8 mm; otherwise no need.
+- **Market:** FAQ-grade modal price (median across grades otherwise); road km = 1.3 × great-circle distance; net = modal − km × user's ₹/qtl/km.
 
+## Run locally
 ```bash
-./run.sh example out.json
-python3 check.py example out.json
+pip install -r requirements.txt
+cp .env.example .env   # optional: add your API keys for local development
+uvicorn server:app --port 8000          # React UI + API at http://localhost:8000
 ```
+The React frontend (`frontend/`, Vite + Tailwind + Recharts + Leaflet) is pre-built into `frontend/dist`
+and served by FastAPI. To change the UI: `cd frontend && npm install && npm run dev` (proxies `/api` to :8000),
+then `npm run build`.
 
-The checker prints the score for each part. The naive solution gets the chats right and little
-else. That's your starting line.
+Keys can be placed in environment variables or the git-ignored `.env` file:
+`DATA_GOV_API_KEY` (data.gov.in → My Account → Generate Key), `GEMINI_API_KEY` (Google AI Studio), and
+`GNANI_API_KEY` (Gnani API dashboard). Voice uses Gnani first, with Gemini audio understanding, Edge-TTS,
+and gTTS fallbacks when configured providers are unavailable. Optional voice settings are `GNANI_STT_MODEL`, `GNANI_TTS_MODEL`,
+`GNANI_HI_VOICE`, `GNANI_EN_VOICE`, and `GNANI_KN_VOICE`.
+Without a Gemini key the app still runs: rule-based planner + deterministic templates.
+A Streamlit version of the same agent is kept in `app.py` (`streamlit run app.py`).
 
-## When the real data arrives
+### API
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/health` | which live sources are configured |
+| `POST /api/warmup` | pre-fetch live weather + mandi data for a location |
+| `POST /api/ask` | runs the agent; streams each graph node as Server-Sent Events, then the final result |
 
-Download it from the challenge page and unzip it inside this folder. It makes `data/dev/` (already in `.gitignore`):
+## Deploy (Render)
+1. Keep `.env`, `.streamlit/secrets.toml`, and API keys out of the repository.
+2. In Render, create a **New Blueprint Instance** from that repository. `render.yaml` uses the root `Dockerfile`, which builds the React frontend and Python API into one service.
+3. Add `DATA_GOV_API_KEY`, `GEMINI_API_KEY`, and `GNANI_API_KEY` when Render prompts for them. The service checks `/api/health` after deployment.
+4. Open the deployed URL, allow location access or enter a village and district, then use **Warm up live cache** before a demo. Free instances may sleep when idle.
 
-```bash
-./run.sh data/dev out.json
-python3 check.py data/dev out.json
-```
-
-`data/dev` is the first two weeks with their answers. We run your code on the six weeks after, which
-you never see, with every name changed again. Open loops are scored on its last two weeks.
-
-## The input
-
-```
-chats.jsonl      chat_id, name, is_group, participants (person ids; Arjun is "ME")
-messages.jsonl   id, chat_id, sender_id, sender_name, ts (unix seconds), kind, body, quoted_id
-seed.json        what the person told us at signup: some circles, some organisation names, a goal
-answers/         dev set only: answers.json
-```
-
-`kind` is `text`, `voice_transcript`, `image_caption` or `document`. `quoted_id` is the message
-being replied to, or null.
-
-## The output
-
-See `schema.json`, and the challenge page for what each part means. In short:
-
-```json
-{
-  "people":        [{"id": "P03", "circle": "staff", "links": [{"organisation": "home", "link": "supports"}], "looks_after": ["P04"]}],
-  "organisations": [{"id": "home", "name": "Home", "type": "residence", "side": "home", "role": "owner"}],
-  "chats":         [{"chat_id": "C03", "organisation": "home"}, {"chat_id": "C01", "person": "P01"}],
-  "goals":         [{"title": "Run the half marathon in January", "area": "health", "type": "milestone", "horizon": "3mo", "evidence": ["M026"]}],
-  "open_loops":    [{"title": "Decide whether to take Zest", "type": "question", "owner": "ME", "chat_id": "C04",
-                     "source_msg": "M016", "due": "2026-10-26", "status": "open", "closed_by": null,
-                     "help": {"action": "remind", "remind_at": "2026-10-25T10:00:00+05:30"}}]
-}
-```
-
-## How the checker scores
-
-The same rules we use on the hidden set. They cover 74 of the 100 points.
-
-- **Circles (12):** share of people with the right circle. People whose circle is in `seed.json`
-  don't count.
-- **Organisations (8):** we pair your organisations with ours by overlap of the chats and people
-  attached to each. Extra or missing organisations lower the score.
-- **Chats (8):** share of chats tied to the right person, or to your organisation paired with ours.
-- **Goals (8):** a goal matches ours when the area is the same and at least one evidence message
-  is shared. The score balances how many of yours are right with how many of ours you found. The
-  goal in `seed.json` doesn't count.
-- **Open loops found (14):** a loop matches ours when your `source_msg` is one of the messages we
-  accept for it. The score balances how many of yours are real with how many of ours you found.
-- **Open loops closed right (14):** for each loop you found, the right status counts 1. Calling a
-  loop done or dropped when it's still open costs 1. Divided by all of our loops.
-- **Where to help (10):** for each open loop we labelled, the right action counts 1. Saying
-  `assist` or `remind` where we said `leave` costs 1.
-
-Cost (12), the write-up (7) and runs with one command (7) are scored by us.
-
-## The answers format
-
-`answers/answers.json` has the same shape as your output, with three differences in `open_loops`
-(and, on the hidden set, a `loops_scored_from` time: loops raised before it are not scored):
-`source_msgs` lists every message we accept as the source, `closing_msgs` lists the messages that
-show it closed, and `help` is just the action, with a `why`.
-
-## Cost
-
-The hidden set is about 15,000 messages, so plan for that size: batch your calls.
-
-Use any model with an OpenAI-compatible API. Read `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODEL`
-from the environment. When we score, we set them to our own key and the model you named, and count
-every token. `llm.py` does this for you and logs what each call used.
+## Limitations (honest)
+- Soil moisture is model-derived (Open-Meteo), not an in-field sensor.
+- Mandi distances use district HQ coordinates × road factor, not turn-by-turn routing.
+- Agmarknet publishes only the current day; early in the morning fewer mandis may have reported.

@@ -1,11 +1,13 @@
-# The challenge data stays on your machine. Never commit it.
-data/
-*.zip
-usage.jsonl
-.llm_cache/
-output.json
-out.json
-.env
+.streamlit/secrets.toml
+.cache/
 __pycache__/
-experiment/
-ai-logs/day-0[1-8]*.md
+*.pyc
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+*.log
+frontend/dist/
+frontend/node_modules/
+.repo-audit/
